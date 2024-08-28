@@ -3,20 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Record Your Mic With Javascript</title>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+    <title>Tensy AI Assistant</title>
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons"rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='main.css') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 </head>
 <body>
     <main>
+        <div id="greeting"></div>
         <button class="mic-toggle" id="mic">
             <span class="material-icons">mic</span>
-        </button>
-
-        <audio class="playback" controls></audio>
+        </button>    
+        <div id="response"></div>
     </main>
-
     <script src="{{ url_for('static', filename='script.js') }}"></script>
 </body>
 </html>

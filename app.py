@@ -1,16 +1,14 @@
-from flask import Flask, request, render_template, send_file
+from flask import Flask, render_template, request, jsonify
 import speech_recognition as sr
 import pyttsx3
 import google.generativeai as genai
-from playsound import playsound
-from gtts import gTTS
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.messages import HumanMessage, SystemMessage
-from pydub import AudioSegment
+import datetime
+import os
+import threading
 
 app = Flask(__name__)
 
-genai.configure(api_key=GEN_AI_KEY)
+genai.configure(api_key=GEN_KEY)
 
 generation_config = {
     "temperature": 2,
@@ -27,83 +25,113 @@ model = genai.GenerativeModel(
 
 engine = pyttsx3.init('sapi5')
 voices = engine.getProperty('voices')
-engine.setProperty('voice', 'voices[0].id')
-#model = ChatGoogleGenerativeAI(google_api_key='', model="gemini-1.5-pro")
-
+engine.setProperty('voice', voices[0].id)
 
 def speak(text):
     engine.say(text)
     engine.runAndWait()
+    
+def speak_async(text):
+    def task():
+        speak(text)
+    thread = threading.Thread(target=task)
+    thread.start()
 
-def capture_audio(audio_file_path):
+def capture_audio_from_file(file_path):
     recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file_path) as source:
-        print("Listening...")
-        audio = recognizer.listen(source)
-        
+    with sr.AudioFile(file_path) as source:
+        print("Listening to the audio file...")
+        audio = recognizer.record(source)
+
         try:
             print("Recognizing...")
             text = recognizer.recognize_google(audio)
             print(f"You said: {text}")
             return text
         except sr.UnknownValueError:
-            speak("Sorry, I could not understand the audio.")
-            return True
+            speak_async("Sorry, I could not understand the audio, please say that again.")
+            return "error"
         except sr.RequestError as e:
-            speak(f"Could not request results; {e}")
-            return True
-    
-def convert_ogg_to_wav(ogg_file_path, wav_file_path):
-    audio = AudioSegment.from_ogg(ogg_file_path)
-    audio.export(wav_file_path, format="wav")
+            speak_async("Could not request results. Pardon me, please say that again.")
+            return "error"
 
-'''
-def speech_to_text(audio_file_path):
-    recognizer = sr.Recognizer()
-    with sr.AudioFile(audio_file_path) as source:
-        print("Processing audio...")
-        audio = recognizer.record(source)
-        text = recognizer.recognize_google(audio)
-        return text
-'''
-#Using gTTS for converting Text to Speech
-'''
-def text_to_speech(text, response_audio_path="response.mp3"):
-    tts = gTTS(text=text, lang='en')
-    tts.save(response_audio_path)
-    return response_audio_path
-'''
+chat_history = [
+    {
+        "role": "user",
+        "parts": [
+            "your name is Tensy an AI voice assistant, you answer all questions shortly correctly.\n",
+        ],
+    },
+    {
+        "role": "model",
+        "parts": [
+            "Okay, I understand. Ask me anything and I'll answer concisely and accurately. 😊\n",
+        ],
+    },
+]
+
+chat_session = model.start_chat(history=chat_history)
+
+def process_response(response_text):
+    clean_text = response_text.replace('**', '').replace('*', '')
+    return clean_text
+
+def continue_chat(user_message):
+    response = chat_session.send_message(user_message)
+    clean_response_text = process_response(response.text)
+    chat_history.append({
+        "role": "user",
+        "parts": [user_message]
+    })
+    chat_history.append({
+        "role": "model",
+        "parts": [clean_response_text]
+    })
+
+    print("AI: ", clean_response_text)
+    speak_async(clean_response_text)
+    return clean_response_text
+
+def intro():
+    hour = datetime.datetime.now().hour
+    if hour >= 0 and hour < 12:
+        wish = "Hello, Good Morning"
+    elif hour >= 12 and hour < 18:
+        wish = "Hello, Good Afternoon"
+    else:
+        wish = "Hello, Good Evening"
+
+    intro_message = wish + " My Name is Tensy, Tell me how can I assist you!"
+    speak_async(intro_message)
+    return intro_message
+
 @app.route('/')
 def index():
     return render_template('index.html')
 
-@app.route('/upload_audio', methods=['POST'])
-def upload_audio():
-    if 'audio_data' not in request.files:
-        return "No audio file provided", 400
+@app.route('/greeting')
+def greeting():
+    intro_message = intro()
+    return jsonify({'greeting': intro_message})
 
-    audio_file = request.files['audio_data']
-    audio_file_path = 'uploaded_audio.ogg'
-    wav_file_path = 'converted_audio.wav'
-    audio_file.save(audio_file_path)
+@app.route('/process_audio', methods=['POST'])
+def process_audio():
+    if 'audio_file' not in request.files:
+        return jsonify({'response': 'No audio found.'}), 400
 
-    # Convert OGG to WAV
-    convert_ogg_to_wav(audio_file_path, wav_file_path)
+    audio_file = request.files['audio_file']
+    file_path = os.path.join('uploads', audio_file.filename)
+    audio_file.save(file_path)
 
-    try:
-        text = speech_to_text(wav_file_path)
-    except Exception as e:
-        return str(e), 500
+    text = capture_audio_from_file(file_path)
+    if text == "error":
+        return jsonify({'response': 'Sorry, I did not catch that. Please try again.'})
 
-    messages = [
-        SystemMessage(content="You are my personal assistant. Provide concise explanations."),
-        HumanMessage(content=text)
-    ]
-
-    response_text = model.invoke(messages).content
-
-    response_audio_path = text_to_speech(response_text)
-    return send_file(response_audio_path, as_attachment=True, download_name='response.mp3')
+    response_text = continue_chat(text)
+    os.remove(file_path)
+    return jsonify({'response': response_text})
 
 if __name__ == "__main__":
+    if not os.path.exists('uploads'):
+        os.makedirs('uploads')
     app.run(debug=True)

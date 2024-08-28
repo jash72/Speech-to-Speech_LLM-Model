@@ -1,3 +1,18 @@
+function speak(text) {
+    const utterance = new SpeechSynthesisUtterance(text);
+    speechSynthesis.speak(utterance);
+}
+
+window.onload = function() {
+    fetch('/greeting')
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('greeting').innerText = data.greeting;
+            speak(data.greeting);
+        });
+};
+
+
 const mic_btn = document.querySelector("#mic");
 const playback = document.querySelector(".playback");
 
@@ -32,7 +47,7 @@ function SetupStream(stream) {
     }
 
     recorder.onstop = e => {
-        const blob = new Blob(chunks, { type: "audio/ogg; codecs=opus" });
+        const blob = new Blob(chunks, { type: "audio/wav; codecs=opus" });
         chunks = [];
         
         SendAudioToServer(blob);
@@ -57,17 +72,16 @@ function ToggleMic() {
 
 function SendAudioToServer(blob) {
     const formData = new FormData();
-    formData.append("audio_data", blob, "recording.ogg");
+    formData.append("audio_data", blob, "voice_input.wav");
 
-    fetch('/upload_audio', {
+    fetch('/process_audio', {
         method: 'POST',
         body: formData
     })
-    .then(response => response.blob())
-    .then(blob => {
-        const audioURL = window.URL.createObjectURL(blob);
-        playback.src = audioURL; 
-        playback.play();
+    .then(response => response.json())
+    .then(data => {
+        document.getElementById('response').innerText = data.response;
+        speak(data.response);
     })
     .catch(error => {
         console.error("Error sending audio to server:", error);
